@@ -19,6 +19,9 @@ from transformers import AutoConfig,AutoModelForCausalLM,AutoTokenizer,BitsAndBy
 from peft import AutoPeftModelForCausalLM
 
 from datasets import load_dataset
+
+from textblob import TextBlob
+
 root = "./"
 train_path = root + "data/wholetrain_gpt.txt"
 # train_path = root + "data/wholetrain.csv"
@@ -45,6 +48,7 @@ reframer = pipeline('text-generation', model=model, tokenizer=tokenizer, stop_se
 
 bleu = load_metric('sacrebleu')
 rouge = load_metric("rouge")
+bertscore = load_metric("bertscore")
 
 preds = []
 gts = []
@@ -56,6 +60,7 @@ with open (test_path, newline="") as data:
     reframed_phrases = []
     answer_phrases = []
     for i in range(len(annotations_list)):
+    # for i in range(10):
         prefix = "<startoftext> " + annotations_list[i]['original_text'] + "\nreframed:"
         gen_text = reframer(prefix, max_length=100)[0]['generated_text']
         if "<endoftext>" in gen_text:
@@ -63,11 +68,11 @@ with open (test_path, newline="") as data:
             gen_text = gen_text[:eos_idx-1]
         sdx = gen_text.index("reframed:")
         pred_text = gen_text[sdx+10:]    
-        print("-----------------------------------------------------------------------")
-        print(pred_text)
-        print("-----------------------------------------------------------------------")
-        print(annotations_list[i]['reframed_text'])
-        print("-----------------------------------------------------------------------")
+        # print("-----------------------------------------------------------------------")
+        # print(pred_text)
+        # print("-----------------------------------------------------------------------")
+        # print(annotations_list[i]['reframed_text'])
+        # print("-----------------------------------------------------------------------")
         # reframed_phrases.append(gen_text+"\n---------------")
         gts.append([annotations_list[i]['reframed_text']])
         preds.append([pred_text])
@@ -80,12 +85,39 @@ for key, value in rouge_scores.items():
 # result = {key: value.mid.fmeasure * 100 for key, value in rouge_scores.items()}
 print("load_metric('sacrebleu')", bleu_scores)
 
+bert_scors = bertscore.compute(predictions=preds, references=gts, lang='en')['f1']
+bert_scores = np.mean(bert_scors)*100
+print("load_metric('bertscore')", bert_scores)
+
 # with open(os.path.join(root, f_name), 'w') as f:
-#     for item in reframed_phrases:
+#     for item in preds:
 #         f.write("%s\n" % item)
 # print("write complete!")
 # with open(os.path.join(root, "total_reframe.txt"),'w') as f:
-#     for item in answer_phrases:
+#     for item in gts:
 #         f.write("%s\n"%item)
 # print("answer written")
 
+pred_sentiment_score = []
+input_sentiment_score = []
+
+assert len(preds) == len(gts)
+
+for i in range(len(preds)):
+    # print("======================================================")
+    # print("--------------------PRED------------------------------")
+    # print(preds[i][0])
+    blob = TextBlob(preds[i][0])
+    pred_sentiment_score.append(blob.sentences[0].sentiment.polarity)
+    # print(blob.sentences[0].sentiment.polarity)
+    # print("-------------------------------------------------")
+    # print(annotations_list[i]['original_text'])
+    blob = TextBlob(annotations_list[i]['original_text'])
+    input_sentiment_score.append(blob.sentences[0].sentiment.polarity)
+    # print(blob.sentences[0].sentiment.polarity)
+    # print("=====================================================")
+pred_sent_scores = np.array(pred_sentiment_score)
+input_sent_scores = np.array(input_sentiment_score)
+deltas = pred_sent_scores - input_sent_scores
+avg_delta = deltas.mean()
+print("Text Blob Avg Sentiment Change: ", avg_delta)
